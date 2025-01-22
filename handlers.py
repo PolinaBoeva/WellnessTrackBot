@@ -97,8 +97,8 @@ async def get_current_temperature_async(city, api_key):
 async def get_random_exercise(api_key):
     url = "https://exercisedb.p.rapidapi.com/exercises?limit=10&offset=0"
     headers = {
-        'x-rapidapi-key': api_key,
-        'x-rapidapi-host': "exercisedb.p.rapidapi.com"
+        "x-rapidapi-key": api_key,
+        "x-rapidapi-host": "exercisedb.p.rapidapi.com",
     }
 
     async with aiohttp.ClientSession() as session:
@@ -356,35 +356,41 @@ async def process_sex(message: Message, state: FSMContext):
 @router.message(Command("get_daily_norms"))
 async def get_daily_norms(message: Message):
     user_id = message.from_user.id
-    if user_id not in users:
-        await message.answer("Заполните profile.")
 
-    if (
-        users[user_id].get("water_norms") is None
-        or users[user_id].get("calorie_norms") is None
-    ):
+    if user_id not in users:
+        await message.answer("Заполните профиль.")
+        return
+
+    user_data = users[user_id]
+
+    # Если еще нет значений для норм воды и калорий, рассчитываем их
+    if user_data.get("water_norms") is None or user_data.get("calorie_norms") is None:
         temperature = await get_current_temperature_async(
-            users[user_id]["city"], api_key=Config().API_KEY
+            user_data.get("city"), api_key=Config().API_KEY
         )
 
         if temperature is None:
             await message.answer("Ошибка при получении данных о температуре.")
             return
 
+        # Вычисляем нормы воды и калорий
         water_norms, calorie_norms = calculate_daily_norms(
-            users[user_id]["weight"],
-            users[user_id]["height"],
-            users[user_id]["age"],
-            users[user_id]["activity_coefficient"],
-            users[user_id]["sex"],
+            user_data["weight"],
+            user_data["height"],
+            user_data["age"],
+            user_data["activity_coefficient"],
+            user_data["sex"],
             temperature,
         )
 
-        if int(users[user_id].get("calories_goal")) != 0:
-            calorie_norms = int(users[user_id].get("calories_goal"))
+        if int(user_data.get("calories_goal", 0)) != 0:
+            calorie_norms = int(user_data["calories_goal"])
 
-    users[user_id]["water_norms"] = water_norms
-    users[user_id]["calorie_norms"] = calorie_norms
+        user_data["water_norms"] = water_norms
+        user_data["calorie_norms"] = calorie_norms
+
+    water_norms = user_data.get("water_norms")
+    calorie_norms = user_data.get("calorie_norms")
 
     await message.answer(
         f"Цель по воде: {water_norms} мл\n" f"Цель по калориям: {calorie_norms} ккал"
@@ -397,7 +403,7 @@ async def log_water(message: Message, state: FSMContext):
     if user_id not in users:
         await message.answer("Заполните profile.")
         return
-    await message.answer("Введите количество выпитой воды")
+    await message.answer("Введите количество выпитой воды в миллилитрах")
     await state.set_state(LogState.water_amount)
 
 
@@ -411,7 +417,7 @@ async def process_water_amount(message: Message, state: FSMContext):
     users[user_id].setdefault("water", 0)
     users[user_id]["water"] += water_amount
 
-    if users[user_id]["water_norms"] is None:
+    if users[user_id].get("water_norms") is None:
         await get_daily_norms(message)
 
     remaining_water = int(users[user_id]["water_norms"] - users[user_id]["water"])
@@ -588,10 +594,14 @@ async def check_progress(message: Message):
         await message.answer("Заполните профиль.")
         return
 
-    if users[user_id]["water_norms"] is None or users[user_id]["calorie_norms"] is None:
+    if (
+        users[user_id].get("water_norms") is None
+        or users[user_id].get("calorie_norms") is None
+    ):
         await get_daily_norms(message)
 
-    if int(users[user_id].get("calories_goal")) != 0:
+    calorie_norms = users[user_id].get("calorie_norms", 0)
+    if int(users[user_id].get("calories_goal", 0)) != 0:
         calorie_norms = int(users[user_id].get("calories_goal"))
 
     consumed_water = users[user_id].get("water", 0)
